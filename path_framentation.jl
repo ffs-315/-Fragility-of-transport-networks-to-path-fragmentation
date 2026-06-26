@@ -10,14 +10,15 @@ using DelimitedFiles
 using JLD2
 using Statistics
 
-# --- 1. Pathfinding Algorithms ---
-
+# --- 1. Pathfinding and route deposition ---
+## Manhattan distance
 function manhattan_dist(u::Int, v::Int, L_nodes::Int)
     ux, uy = (u - 1) % L_nodes, (u - 1) ÷ L_nodes
     vx, vy = (v - 1) % L_nodes, (v - 1) ÷ L_nodes
     return abs(ux - vx) + abs(uy - vy)
 end
 
+## Find a feasible shortest path on the remaining unused lattice
 function constrained_closest_path(L_R::SimpleGraph, A::Int, B::Int, min_len::Int, max_len::Int, L_nodes::Int)
     visited = Dict{Int,Int}(A => A)
     depths = Dict{Int,Int}(A => 0)
@@ -72,7 +73,7 @@ function constrained_closest_path(L_R::SimpleGraph, A::Int, B::Int, min_len::Int
 end
 
 # --- 2. Network Generation ---
-
+## Generate edge-disjoint shortest-path routes up to target coverages /phi
 function generate_continuous_networks(L::Int, phi_targets::AbstractVector)
     L_nodes = L + 1
     L_R = Graphs.grid([L_nodes, L_nodes])
@@ -128,7 +129,8 @@ function generate_continuous_networks(L::Int, phi_targets::AbstractVector)
     return results
 end
 
-
+# --- 3. Route-intersection network and degree statistics ---
+## Build the line network where nodes are routes and edges are route intersections.
 function build_intersection_graph(hyperedges::Vector{Vector{Int}})
     N = length(hyperedges)
     G_line = SimpleGraph(N)
@@ -145,8 +147,8 @@ function build_intersection_graph(hyperedges::Vector{Vector{Int}})
     end
     return G_line
 end
-# --- 3. Analysis & Visualization ---
 
+## Compute the complementary cumulative distribution of degrees.
 function compute_ccdf(degrees)
     counts = countmap(degrees)
     sorted_k = sort(collect(keys(counts)))
@@ -162,6 +164,7 @@ function compute_ccdf(degrees)
     return sorted_k, ccdf_vals
 end
 
+## Aggregate line-network degree distributions over multiple realizations.
 function run_ensemble_ccdf(L::Int, phi_targets::AbstractVector, realizations::Int)
     println("Running $realizations realizations for L=$L...")
 
@@ -222,6 +225,8 @@ function run_ensemble_ccdf(L::Int, phi_targets::AbstractVector, realizations::In
     return plt
 end
 
+## Plot degree CCDFs for selected coverage densities.
+
 function plot_ccdf(L::Int, phi_targets::AbstractVector)
     println("Generating networks for CCDF (L=$L)...")
     snapshots = generate_continuous_networks(L, phi_targets)
@@ -253,6 +258,8 @@ function plot_ccdf(L::Int, phi_targets::AbstractVector)
     return snapshots, plt
 end
 
+# --- 4. Basic visualization and driver routines ---
+## Generate an animation of route deposition.
 function generate_evolution_gif(snapshots, phi_targets=collect(0.25:0.05:0.90))
 
     #println("Running continuous deposition simulation (L=$L)...")
@@ -315,8 +322,7 @@ function generate_evolution_gif(snapshots, phi_targets=collect(0.25:0.05:0.90))
     println("GIF successfully saved to $output_file")
 end
 
-# --- 4. Main Execution Block ---
-
+## Run a basic single-size simulation workflow.
 function main(L)
     ccdf_phi_targets = collect(0.3:0.05:0.95)
     snapshots, final_plot = plot_ccdf(L, ccdf_phi_targets)
@@ -324,6 +330,7 @@ function main(L)
     return final_plot
 end
 
+## Run an ensemble simulation workflow.
 function main_ensemble(L_size=50, num_realizations=100)
     # Define coarser targets for speed
     phi_targets = [0.25, 0.4, 0.55, 0.7, 0.85, 0.95]
@@ -374,7 +381,7 @@ function generate_network_to_fixed_phi(L::Int, target_phi::Float64)
 end
 
 # --- New Analysis & Plotting Routines ---
-
+## Fit an exponential decay to the CCDF tail.
 function fit_exponential_ccdf(k_vals, ccdf_vals; min_prob=0.1)
     # Filter out the finite-size cutoff tail to isolate the linear regime
     valid_idx = ccdf_vals .>= min_prob
@@ -399,7 +406,7 @@ end
 
 
 ################ Fragmentation Resilience Analysis #######################
-# --- 2. Multiplex Attack & Routing Mechanics ---
+# ---  Multiplex Attack & Routing Mechanics ---
 
 function fracture_hyperedges(hyperedges::Vector{Vector{Int}}, p::Float64)
     surviving_fragments = Vector{Vector{Int}}()
@@ -428,10 +435,8 @@ function fracture_hyperedges(hyperedges::Vector{Vector{Int}}, p::Float64)
     return surviving_fragments
 end
 
-
-########################## NEW FUNCTIONS ########################
-
-
+# --- 5. Deposition dynamics and scaling diagnostics ---
+## Track route age, length, degree, and tortuosity during deposition.
 function track_deposition_dynamics(L::Int, phi_targets::AbstractVector)
     L_nodes = L + 1
     L_R = Graphs.grid([L_nodes, L_nodes])
@@ -498,6 +503,7 @@ function track_deposition_dynamics(L::Int, phi_targets::AbstractVector)
     return birth_phis, lengths, degrees_at_phi, tortuosity_ratios
 end
 
+## Plot route age against line network degree.
 function plot_age_degree_scatter(L::Int)
     phi_targets = [0.25, 0.50, 0.75, 0.95]
     birth_phis, lengths, degrees_at_phi = track_deposition_dynamics(L, phi_targets)
@@ -549,7 +555,7 @@ function plot_age_degree_scatter(L::Int)
 end
 
 # --- New Plotting Utilities for Confidence Bands ---
-
+## One-dimensional linear interpolation helper.
 function interp1d(x::Vector{Float64}, y::Vector{Float64}, x_new::AbstractVector{Float64})
     y_new = zeros(length(x_new))
     if isempty(x) || isempty(y)
@@ -575,6 +581,7 @@ function interp1d(x::Vector{Float64}, y::Vector{Float64}, x_new::AbstractVector{
     return y_new
 end
 
+## Add ensemble confidence bands to an existing plot.
 function plot_confidence_bands!(p, x::AbstractVector{Float64}, Y_vecs::Vector{Vector{Float64}}, color::Symbol)
     if isempty(Y_vecs)
         return
@@ -607,6 +614,7 @@ function plot_confidence_bands!(p, x::AbstractVector{Float64}, Y_vecs::Vector{Ve
     plot!(p, x, mean_Y, color=color, linewidth=2, label="")
 end
 
+## Compute moving-average scaling diagnostics.
 function plot_moving_average_scaling(L_values::AbstractVector{Int}=[25, 100, 250, 500], realizations::Int=10, phi_target::Float64=0.95; save_file::String="moving_average_data.jld2")
     plots_len = []
     plots_tort = []
@@ -780,7 +788,7 @@ function plot_moving_average_scaling_bands(L_values::AbstractVector{Int}=[25, 10
 end
 
 # --- New Function: Replot Saved Data ---
-
+## Replot saved moving-average scaling data.
 function replot_saved_data(filename::String="moving_average_data.jld2")
     println("Loading data from $filename...")
     all_data = JLD2.load(filename, "all_data")
@@ -865,8 +873,8 @@ function replot_saved_data(filename::String="moving_average_data.jld2")
     return final_plot
 end
 
-# --- 2. Multiplex Attack & Routing Mechanics (Corrected) ---
-
+# --- 6. Multiplex Attack & Routing Mechanics ---
+## Build the routing graph containing substrate and express layers.
 function build_multiplex_routing_graph(fragments::Vector{Vector{Int}}, L::Int)
     num_physical_nodes = (L + 1)^2
     num_fragments = length(fragments)
@@ -907,6 +915,7 @@ function build_multiplex_routing_graph(fragments::Vector{Vector{Int}}, L::Int)
     return G_routing, num_physical_nodes
 end
 
+## Compute global efficiency over physical origin-destination nodes.
 function multiplex_global_efficiency(G_routing::SimpleWeightedDiGraph, num_physical_nodes::Int)
     eff = 0.0
 
@@ -926,8 +935,8 @@ function multiplex_global_efficiency(G_routing::SimpleWeightedDiGraph, num_physi
 
     return eff / (num_physical_nodes * (num_physical_nodes - 1) / 2)
 end
-# --- 3. Experiment Execution ---
 
+## Evaluate effectiveness under random route fragmentation.
 function run_fragmentation_resilience(L, target_phi)
 
     println("Generating master network at phi = $target_phi...")
@@ -992,10 +1001,10 @@ function run_fragmentation_resilience(L, target_phi)
     return plt
 end
 
-# --- 2. Attack Simulators ---
+##### Attack Simulators ######
 
-# --- 1. Line Graph & Target Generation ---
-
+# --- 1. Line network & Target Generation ---
+## Generate logarithmically spaced attack targets.
 function generate_log_p_targets()
     # 10 points logspaced from 0.01 (1%) to 0.1 (10%)
     p1 = 10 .^ range(log10(0.01), log10(0.1), length=10)
@@ -1006,7 +1015,8 @@ function generate_log_p_targets()
     return vcat([0.0], p1, p2)
 end
 
-
+# --- 7. Structural connectivity and attack protocols ---  
+## Compute the mass of the largest connected component in the line network
 function line_graph_lcc_mass(fragments::Vector{Vector{Int}})
     if isempty(fragments)
         return 0.0
@@ -1024,6 +1034,7 @@ function line_graph_lcc_mass(fragments::Vector{Vector{Int}})
     return maximum(sum(frag_lengths[c]) for c in comps)
 end
 
+## Compute normalized line network connectivity C(p).
 function line_graph_lcc_ratio(fragments::Vector{Vector{Int}}, lcc0_mass::Real)
     if lcc0_mass <= 0
         return 0.0
@@ -1033,7 +1044,7 @@ function line_graph_lcc_ratio(fragments::Vector{Vector{Int}}, lcc0_mass::Real)
 end
 
 #Protocol 1: True Random Edge Removal (Fragmentation)
-
+# Execute random edge removal with route fragmentation.
 function execute_random_edge_attack(
     hyperedges::Vector{Vector{Int}},
     p_targets::Vector{Float64},
@@ -1047,7 +1058,7 @@ function execute_random_edge_attack(
 
     p_real = Float64[]
     Q_vals = Float64[]
-    S1_vals = Float64[]
+    S1_vals = Float64[]  ## S1=C
 
     lcc0_mass = line_graph_lcc_mass(hyperedges)
 
@@ -1138,7 +1149,8 @@ function execute_random_edge_attack(
     return p_real, Q_vals, S1_vals
 end
 
-# Protocols 2-4: Targeted Full-Line Removal
+# Protocols 2-5: Targeted Full-Line Removal
+# Execute full-line removal using a prescribed route ordering.
 function execute_line_attack(hyperedges::Vector{Vector{Int}}, sorted_indices::Vector{Int}, p_targets::Vector{Float64}, L::Int, E_0::Float64, E_grid::Float64, total_edges::Int)
     num_phys = (L + 1)^2
     p_real = Float64[]
@@ -1184,8 +1196,8 @@ function execute_line_attack(hyperedges::Vector{Vector{Int}}, sorted_indices::Ve
     return p_real, Q_vals, S1_vals
 end
 
-# Protocol 5: Targeted shared lattice-node attack
-# Attack lattice nodes passed by the largest number of hyperedges.
+# Protocol 6: Targeted shared lattice-node attack
+# Rank lattice nodes by the number of routes passing through them.
 
 function sorted_lattice_nodes_by_hyperedge_occupancy(hyperedges::Vector{Vector{Int}})
     node_to_hyperedges = Dict{Int,Set{Int}}()
@@ -1208,6 +1220,7 @@ function sorted_lattice_nodes_by_hyperedge_occupancy(hyperedges::Vector{Vector{I
     return sorted_nodes, node_to_hyperedges
 end
 
+# Map lattice nodes to incident internal route segments.
 function node_to_internal_segments(hyperedges::Vector{Vector{Int}})
     node_segments = Dict{Int,Vector{Tuple{Int,Int}}}()
 
@@ -1225,6 +1238,7 @@ function node_to_internal_segments(hyperedges::Vector{Vector{Int}})
     return node_segments
 end
 
+# Fragment routes after removing selected lattice nodes.
 function fragments_after_node_attack(
     hyperedges::Vector{Vector{Int}},
     removed_nodes::Set{Int};
@@ -1255,6 +1269,7 @@ function fragments_after_node_attack(
     return surviving_fragments
 end
 
+# Execute shared-node removal in the express layer.
 function execute_intersection_node_attack(
     hyperedges::Vector{Vector{Int}},
     p_targets::Vector{Float64},
@@ -1333,8 +1348,8 @@ function execute_intersection_node_attack(
 end
 
 
-# --- 3. Main Experiment Protocol (Updated with 5 Metrics) ---
-
+####Main Experiment Protocol ---
+# Run all six attack protocols for one network.
 function run_comparative_attack_protocols(L::Int, target_phi::Float64; save_dir=nothing)
     println("1. Generating Master Network (L=$L, phi=$target_phi)...")
     master_hyperedges = generate_network_to_fixed_phi(L, target_phi)
@@ -1408,6 +1423,7 @@ function run_comparative_attack_protocols(L::Int, target_phi::Float64; save_dir=
 
     println("   -> Simulating Targeted (Highest Betweenness)...")
     p_bet, Q_bet, S1_bet = execute_line_attack(master_hyperedges, idx_betweenness, p_targets, L, E_0, E_grid, total_edges)
+    # --- Attacks 6: Shared nodes Removals ---
     println("   -> Simulating Targeted (Shared Lattice Nodes)...")
     p_node, Q_node, S1_node = execute_intersection_node_attack(
         master_hyperedges,
@@ -1514,120 +1530,8 @@ function run_comparative_attack_protocols(L::Int, target_phi::Float64; save_dir=
     )
 end
 
-function run_ensemble_semilog_ccdf_exp_fits(
-    L::Int,
-    phi_targets::AbstractVector,
-    realizations::Int;
-    min_prob::Float64=0.1,
-    seed=nothing,
-    outfile::Union{Nothing,String}=nothing
-)
-    if seed !== nothing
-        Random.seed!(seed)
-    end
-
-    aggregated_degrees = Dict{Float64,Vector{Int}}()
-
-    for phi in phi_targets
-        aggregated_degrees[phi] = Int[]
-    end
-
-    for r in 1:realizations
-        if r % 10 == 0
-            println("Completed $r / $realizations realizations...")
-        end
-
-        snapshots = generate_continuous_networks(L, phi_targets)
-
-        for phi in phi_targets
-            if haskey(snapshots, phi)
-                G = build_intersection_graph(snapshots[phi])
-                append!(aggregated_degrees[phi], degree(G))
-            end
-        end
-    end
-
-    plt = Plots.plot(
-        title="Semilog CCDF with exponential fits\nL=$L, runs=$realizations",
-        xlabel="Degree k",
-        ylabel="P(K >= k)",
-        yaxis=:log10,
-        legend=:bottomleft,
-        grid=true
-    )
-
-    colors = Plots.palette(:tab10, length(phi_targets))
-    fit_info = NamedTuple[]
-
-    for (i, phi) in enumerate(sort(collect(phi_targets)))
-        degs = aggregated_degrees[phi]
-
-        if isempty(degs)
-            println("No data for phi = $phi")
-            continue
-        end
-
-        k_vals, ccdf_vals = compute_ccdf(degs)
-
-        valid = (k_vals .> 0) .& (ccdf_vals .> 0)
-        k_vals = k_vals[valid]
-        ccdf_vals = ccdf_vals[valid]
-
-        if length(k_vals) < 2
-            continue
-        end
-
-        fit_vals, lambda = fit_exponential_ccdf(
-            k_vals,
-            ccdf_vals;
-            min_prob=min_prob
-        )
-
-        Plots.scatter!(
-            plt,
-            k_vals,
-            ccdf_vals;
-            label="phi=$(round(phi, digits=2))",
-            color=colors[i],
-            markersize=3,
-            markerstrokewidth=0,
-            alpha=0.65
-        )
-
-        fit_valid = fit_vals .> 0
-
-        Plots.plot!(
-            plt,
-            k_vals[fit_valid],
-            fit_vals[fit_valid];
-            label="exp fit λ=$(round(lambda, digits=3))",
-            color=colors[i],
-            linewidth=2,
-            linestyle=:dash
-        )
-
-        push!(fit_info, (
-            phi=phi,
-            lambda=lambda,
-            num_degrees=length(degs)
-        ))
-    end
-
-    if outfile !== nothing
-        mkpath(dirname(outfile))
-        Plots.savefig(plt, outfile)
-        println("Figure saved to: ", outfile)
-    end
-
-    display(plt)
-
-    return (
-        plot=plt,
-        degrees=aggregated_degrees,
-        fits=fit_info
-    )
-end
-
+# --- 8. Saved-data reconstruction and replotting ---
+# Run Q(p) calculations for standard coverage values.
 function run_Q_batch(L::Int)
     phi_list = [0.25, 0.50, 0.75, 0.95]
     save_dir = joinpath(@__DIR__, "Resiliencefig")
@@ -1641,7 +1545,7 @@ function run_Q_batch(L::Int)
 
     return results
 end
-
+# Replot Q(p) curves from saved JLD2 files.
 function replot_Q_from_jld2(L::Int; save_dir=joinpath(@__DIR__, "Resiliencefig"))
     L_dir = joinpath(save_dir, "L=$(L)")
     files = sort(filter(f -> endswith(f, ".jld2") && occursin("Q_data", f), readdir(L_dir)))
@@ -1699,6 +1603,7 @@ function replot_Q_from_jld2(L::Int; save_dir=joinpath(@__DIR__, "Resiliencefig")
     end
 end
 
+# Compute only C(p) for random edge removal.
 function execute_random_edge_attack_S1_only(hyperedges, p_targets, total_edges)
     p_real = Float64[]
     S1_vals = Float64[]
@@ -1753,6 +1658,7 @@ function execute_random_edge_attack_S1_only(hyperedges, p_targets, total_edges)
     return p_real, S1_vals
 end
 
+# Compute only C(p) for full-line removal.
 function execute_line_attack_S1_only(hyperedges, sorted_indices, p_targets, total_edges)
     p_real = Float64[]
     S1_vals = Float64[]
@@ -1785,6 +1691,7 @@ function execute_line_attack_S1_only(hyperedges, sorted_indices, p_targets, tota
     return p_real, S1_vals
 end
 
+# Compute only C(p) for shared-node removal.
 function execute_intersection_node_attack_S1_only(hyperedges, p_targets, total_edges)
     sorted_nodes, _ = sorted_lattice_nodes_by_hyperedge_occupancy(hyperedges)
     node_segments = node_to_internal_segments(hyperedges)
@@ -1839,6 +1746,7 @@ function execute_intersection_node_attack_S1_only(hyperedges, p_targets, total_e
     return p_real, S1_vals
 end
 
+# Reconstruct C(p) data from saved Q-data files.
 function run_S1_only_from_Q_data(
     L::Int;
     phi_list=[0.25, 0.50, 0.75, 0.95],
@@ -1920,9 +1828,9 @@ function run_S1_only_from_Q_data(
     end
 end
 
-
+# Replot combined Q(p) and C(p) saved data.
 function replot_all_S1_mixed_data(
-    L_values=[25, 50, 75];
+    L_values=[25, 50, 75, 100];
     phi_list=[0.25, 0.50, 0.75, 0.95],
     save_dir=joinpath(@__DIR__, "Resiliencefig")
 )
@@ -1994,6 +1902,8 @@ function replot_all_S1_mixed_data(
     end
 end
 
+# --- 9. Additional survival and scaling diagnostics ---
+# Return surviving fragments after random edge removal.
 function random_edge_fragments_at_p(
     hyperedges,
     removed_set
@@ -2023,7 +1933,7 @@ function random_edge_fragments_at_p(
 
     return surviving_fragments
 end
-
+# Plot degree evolution under all attack protocols.
 function plot_all_attack_degree_evolution(
     L::Int,
     phi::Float64;
@@ -2208,7 +2118,7 @@ function plot_all_attack_degree_evolution(
     return all_degree_data
 end
 
-
+# Compare random edge attack across system sizes.
 function plot_random_edge_across_L(
     phi::Float64;
     L_values=[25, 50, 75, 100],
@@ -2282,13 +2192,13 @@ function plot_random_edge_across_L(
     return plt
 end
 
-
-
+# Rescale attack intensity by mean route length.
 function scaled_x_mean_length(p_vals, line_lengths)
     mean_l = mean(line_lengths)
     return 1 .- (1 .- p_vals) .^ mean_l
 end
 
+# Rescale attack intensity using the route-length distribution.
 function scaled_x_length_distribution(p_vals, line_lengths)
     x_vals = Float64[]
 
@@ -2300,6 +2210,7 @@ function scaled_x_length_distribution(p_vals, line_lengths)
     return x_vals
 end
 
+# Plot survival-scaled Q(p) curves.
 function plot_two_survival_scaled_Q(
     phi::Float64;
     L_values=[25, 50, 75, 100],
@@ -2406,6 +2317,7 @@ function plot_two_survival_scaled_Q(
     return final_plot
 end
 
+# Plot dynamic mean-length scaling under attacks.
 function plot_dynamic_mean_length_scaling(
     phi::Float64;
     L_values=[25, 50, 75, 100],
@@ -2523,127 +2435,8 @@ function plot_dynamic_mean_length_scaling(
     return final_plot
 end
 
-
-function run_and_compare_shared_node_L25_minlen2(
-    ;
-    phi_values=[0.25, 0.50, 0.75, 0.95],
-    old_dir=joinpath(@__DIR__, "Resiliencefig", "L=25"),
-    new_dir=joinpath(@__DIR__, "Resiliencefig_shared_node_minlen2", "L=25"),
-    comparison_dir=joinpath(@__DIR__, "SharedNode_minlen_comparison", "L=25"),
-    ell_min::Int=2,
-    p_floor=0.005
-)
-    L = 25
-    mkpath(new_dir)
-    mkpath(comparison_dir)
-
-    colors = palette(:tab10, length(phi_values))
-
-    new_Q_plot = plot(
-        xlabel="p", ylabel="Q(p)",
-        title="Shared-nodes attack, new minimum fragment length 2",
-        xaxis=:log10, ylims=(0, 1.05),
-        legend=:bottomleft, grid=true, framestyle=:box,
-        size=(500, 400)
-    )
-
-    comparison_Q_plot = plot(
-        xlabel="p", ylabel="Q(p)",
-        title="Shared-nodes attack: old vs new minlen2",
-        #xaxis=:log10, 
-        ylims=(0, 1.05),
-        xlims=(0, 1.05),
-        legend=:bottomleft, grid=true, framestyle=:box,
-        size=(500, 400)
-    )
-
-    for (i, phi) in enumerate(phi_values)
-        phi_tag = replace(@sprintf("%.2f", phi), "." => "p")
-
-        old_file = joinpath(old_dir, "Q_data_L25_phi$(phi_tag).jld2")
-        isfile(old_file) || error("Missing old file: $old_file")
-
-        old_data = JLD2.load(old_file)
-
-        master_hyperedges = old_data["master_hyperedges"]
-        p_targets = Float64.(old_data["p_targets"])
-        E_0 = old_data["E_0"]
-        E_grid = old_data["E_grid"]
-        total_edges = old_data["total_edges"]
-
-
-        p_new, Q_new, S1_new = execute_intersection_node_attack(
-            master_hyperedges,
-            p_targets,
-            L,
-            E_0,
-            E_grid,
-            total_edges;
-            ell_min
-        )
-
-        new_file = joinpath(
-            new_dir,
-            "shared_node_data_L25_phi$(phi_tag)_minlen2.jld2"
-        )
-
-        JLD2.jldsave(
-            new_file;
-            L=L,
-            target_phi=phi,
-            ell_min=ell_min,
-            p_targets=p_targets,
-            p_shared_node=p_new,
-            Q_shared_node=Q_new,
-            S1_shared_node=S1_new,
-            master_hyperedges=master_hyperedges,
-            E_0=E_0,
-            E_grid=E_grid,
-            total_edges=total_edges,
-            p_definition="fraction of original edges absent from valid surviving fragments"
-        )
-
-        old_p = Float64.(old_data["p_shared_node"])
-        old_Q = old_data["Q_shared_node"]
-        new_p_plot = copy(p_new)
-        old_p_plot = copy(old_p)
-
-        new_p_plot[new_p_plot .== 0.0] .= p_floor
-        old_p_plot[old_p_plot .== 0.0] .= p_floor
-
-        phi_label = @sprintf("%.2f", phi)
-
-        plot!(new_Q_plot, new_p_plot, Q_new;
-            label="phi=$phi_label", color=colors[i],
-            marker=:diamond, markersize=3, linewidth=1.8)
-
-        plot!(comparison_Q_plot, old_p_plot, old_Q;
-            label="phi=$phi_label, old", color=colors[i],
-            linestyle=:dash, marker=:circle, markersize=3)
-
-        plot!(comparison_Q_plot, new_p_plot, Q_new;
-            label="phi=$phi_label, minlen2", color=colors[i],
-            linestyle=:solid, marker=:diamond, markersize=3)
-    end
-
-    new_Q_file = joinpath(new_dir, "Q_shared_node_L25_all_phi_minlen2.pdf")
-    comparison_file = joinpath(
-        comparison_dir,
-        "Q_shared_node_L25_old_vs_minlen2.pdf"
-    )
-
-    savefig(new_Q_plot, new_Q_file)
-    savefig(comparison_Q_plot, comparison_file)
-
-    display(new_Q_plot)
-    display(comparison_Q_plot)
-
-    println("New Shared-Node data and Q figure saved in: ", new_dir)
-    println("Comparison Q figure saved to: ", comparison_file)
-
-    return new_Q_plot, comparison_Q_plot
-end
-
+# --- 10. Minimum-fragment-length correction and final linear data ---
+# Compute shared-node attack data with ell_min=2.
 function compute_shared_node_minlen2(
     L::Int;
     phi_values=[0.25, 0.50, 0.75, 0.95],
@@ -2707,6 +2500,7 @@ function compute_shared_node_minlen2(
     end
 end
 
+# Compute random-edge attack data with ell_min=2.
 function compute_random_edge_minlen2(
     L::Int;
     phi_values=[0.25, 0.50, 0.75, 0.95],
@@ -2799,7 +2593,7 @@ function compute_random_edge_minlen2(
     end
 end
 
-
+# Return random-edge fragments after applying ell_min=2.
 function random_edge_fragments_at_p_minlen2(
     hyperedges::Vector{Vector{Int}},
     removed_set::Set{Tuple{Int,Int}};
@@ -2831,3 +2625,915 @@ function random_edge_fragments_at_p_minlen2(
     return surviving_fragments
 end
 
+
+###################################### new linear axis
+# ============================================================
+# Keep old semilog data for p <= 0.1,
+# compute new linear data for p = 0.1:0.1:1.0,
+# then merge and save using the old Q_data field names.
+# ============================================================
+
+# Merge low-p saved data with new linear-scale data for all six attacks.
+function compute_merged_minlen2_six_strategies(
+    L::Int,
+    phi::Real;
+    random_iterations::Int=10,
+    ell_min::Int=2,
+    seed::Int=1234,
+
+    old_base_dir=joinpath(
+        @__DIR__,
+        "Resiliencefig"
+    ),
+
+    random_edge_base_dir=joinpath(
+        @__DIR__,
+        "Resiliencefig_random_edge_minlen2"
+    ),
+
+    shared_node_base_dir=joinpath(
+        @__DIR__,
+        "Resiliencefig_shared_node_minlen2"
+    ),
+
+    output_base_dir=joinpath(
+        @__DIR__,
+        "MergedMinlen2LinearData"
+    )
+)
+    phi = Float64(phi)
+
+    phi_tag = replace(
+        @sprintf("%.2f", phi),
+        "." => "p"
+    )
+
+    # ========================================================
+    # 1. Input files
+    # ========================================================
+
+    old_file = joinpath(
+        old_base_dir,
+        "L=$(L)",
+        "Q_data_L$(L)_phi$(phi_tag).jld2"
+    )
+
+    #=
+    old_s1_file = joinpath(
+        old_base_dir,
+        "L=$(L)",
+        "S1_data_L$(L)_phi$(phi_tag).jld2"
+    )
+        =#
+
+    old_s1_file = joinpath(
+        @__DIR__,
+        "Combined_minlen2_data",
+        "L=$(L)",
+        "combined_data_L$(L)_phi$(phi_tag)_minlen2.jld2"
+    )
+
+    random_edge_file = joinpath(
+        random_edge_base_dir,
+        "L=$(L)",
+        "random_edge_data_L$(L)_phi$(phi_tag)_minlen2.jld2"
+    )
+
+    shared_node_file = joinpath(
+        shared_node_base_dir,
+        "L=$(L)",
+        "shared_node_data_L$(L)_phi$(phi_tag)_minlen2.jld2"
+    )
+
+    isfile(old_file) ||
+        error("Missing old data file:\n$old_file")
+
+    isfile(old_s1_file) ||
+        error("Missing old S1 data file:\n$old_s1_file")
+
+    isfile(random_edge_file) ||
+        error("Missing Random-edge minlen2 file:\n$random_edge_file")
+
+    isfile(shared_node_file) ||
+        error("Missing Shared-node minlen2 file:\n$shared_node_file")
+
+    println()
+    println("============================================")
+    println("L = $L, phi = $phi")
+    println("Loading:")
+    println(old_file)
+    println(random_edge_file)
+    println(shared_node_file)
+    println("============================================")
+
+    old_data = JLD2.load(old_file)
+    old_s1_data = JLD2.load(old_s1_file)
+
+    random_edge_data = JLD2.load(random_edge_file)
+    shared_node_data = JLD2.load(shared_node_file)
+
+    # Confirm ell_min=2
+    if haskey(random_edge_data, "ell_min")
+        Int(random_edge_data["ell_min"]) == ell_min ||
+            error("Random-edge file is not ell_min=$ell_min")
+    end
+
+    if haskey(shared_node_data, "ell_min")
+        Int(shared_node_data["ell_min"]) == ell_min ||
+            error("Shared-node file is not ell_min=$ell_min")
+    end
+
+    # ========================================================
+    # 2. Original network and baseline
+    # ========================================================
+
+    master_hyperedges =
+        old_data["master_hyperedges"]
+
+    total_edges =
+        Int(old_data["total_edges"])
+
+    E_0 =
+        Float64(old_data["E_0"])
+
+    E_grid =
+        Float64(old_data["E_grid"])
+
+    old_p_targets =
+        Float64.(old_data["p_targets"])
+
+    # Retain old semilog target positions through p=0.1
+    low_indices = findall(
+        p -> p <= 0.1 + 1e-12,
+        old_p_targets
+    )
+
+    old_low_p_targets =
+        old_p_targets[low_indices]
+
+    # New calculations start at p=0.2
+    new_p_targets =
+        collect(0.15:0.05:1.0)
+
+    merged_p_targets = vcat(
+        old_low_p_targets,
+        new_p_targets
+    )
+
+    println("Old targets retained:")
+    println(old_low_p_targets)
+
+    println("New targets:")
+    println(new_p_targets)
+
+    # Check lengths
+    maximum(low_indices) <= length(random_edge_data["p_rand_edge"]) ||
+        error("Random-edge minlen2 data have incompatible length.")
+
+    maximum(low_indices) <= length(shared_node_data["p_shared_node"]) ||
+        error("Shared-node minlen2 data have incompatible length.")
+
+    # ========================================================
+    # 3. Attack rankings
+    # ========================================================
+
+    G_line =
+        build_intersection_graph(master_hyperedges)
+
+    line_lengths = [
+        length(line) - 1
+        for line in master_hyperedges
+    ]
+
+    degree_scores =
+        collect(degree(G_line))
+
+    idx_longest =
+        sortperm(line_lengths; rev=true)
+
+    idx_degree =
+        sortperm(degree_scores; rev=true)
+
+    # Use the old betweenness ranking when available
+    if haskey(old_data, "idx_betweenness")
+        idx_betweenness =
+            Int.(old_data["idx_betweenness"])
+
+        betweenness_scores =
+            haskey(old_data, "bc_scores") ?
+            Float64.(old_data["bc_scores"]) :
+            Float64[]
+    else
+        println("Computing betweenness centrality...")
+
+        betweenness_scores =
+            Graphs.betweenness_centrality(G_line)
+
+        idx_betweenness =
+            sortperm(betweenness_scores; rev=true)
+    end
+
+    number_new_targets =
+        length(new_p_targets)
+
+    # ========================================================
+    # 4. Random edge: new high-p data
+    # ========================================================
+
+    println()
+    println(
+        "1/6 Random edge: $random_iterations runs, ell_min=$ell_min"
+    )
+
+    random_edge_p_runs =
+        zeros(random_iterations, number_new_targets)
+
+    random_edge_Q_runs =
+        zeros(random_iterations, number_new_targets)
+
+    random_edge_C_runs =
+        zeros(random_iterations, number_new_targets)
+
+    random_edge_seeds =
+        zeros(Int, random_iterations)
+
+    for run in 1:random_iterations
+        println("    run $run / $random_iterations")
+
+        run_seed =
+            seed + 100_000 * L + run
+
+        random_edge_seeds[run] = run_seed
+        Random.seed!(run_seed)
+
+        p_run, Q_run, C_run =
+            execute_random_edge_attack(
+                master_hyperedges,
+                new_p_targets,
+                L,
+                E_0,
+                E_grid,
+                total_edges;
+                ell_min=ell_min
+            )
+
+        random_edge_p_runs[run, :] .= p_run
+        random_edge_Q_runs[run, :] .= Q_run
+        random_edge_C_runs[run, :] .= C_run
+    end
+
+    new_p_rand_edge =
+        vec(mean(random_edge_p_runs, dims=1))
+
+    new_Q_rand_edge =
+        vec(mean(random_edge_Q_runs, dims=1))
+
+    new_C_rand_edge =
+        vec(mean(random_edge_C_runs, dims=1))
+
+    new_p_rand_edge_std =
+        vec(std(random_edge_p_runs, dims=1))
+
+    new_Q_rand_edge_std =
+        vec(std(random_edge_Q_runs, dims=1))
+
+    new_C_rand_edge_std =
+        vec(std(random_edge_C_runs, dims=1))
+
+    # ========================================================
+    # 5. Random line: new high-p data
+    # ========================================================
+
+    println()
+    println(
+        "2/6 Random line: $random_iterations runs"
+    )
+
+    random_line_p_runs =
+        zeros(random_iterations, number_new_targets)
+
+    random_line_Q_runs =
+        zeros(random_iterations, number_new_targets)
+
+    random_line_C_runs =
+        zeros(random_iterations, number_new_targets)
+
+    random_line_seeds =
+        zeros(Int, random_iterations)
+
+    for run in 1:random_iterations
+        println("    run $run / $random_iterations")
+
+        run_seed =
+            seed + 200_000 * L + run
+
+        random_line_seeds[run] = run_seed
+        Random.seed!(run_seed)
+
+        random_order = shuffle(
+            collect(1:length(master_hyperedges))
+        )
+
+        p_run, Q_run, C_run =
+            execute_line_attack(
+                master_hyperedges,
+                random_order,
+                new_p_targets,
+                L,
+                E_0,
+                E_grid,
+                total_edges
+            )
+
+        random_line_p_runs[run, :] .= p_run
+        random_line_Q_runs[run, :] .= Q_run
+        random_line_C_runs[run, :] .= C_run
+    end
+
+    new_p_rand_line =
+        vec(mean(random_line_p_runs, dims=1))
+
+    new_Q_rand_line =
+        vec(mean(random_line_Q_runs, dims=1))
+
+    new_C_rand_line =
+        vec(mean(random_line_C_runs, dims=1))
+
+    new_p_rand_line_std =
+        vec(std(random_line_p_runs, dims=1))
+
+    new_Q_rand_line_std =
+        vec(std(random_line_Q_runs, dims=1))
+
+    new_C_rand_line_std =
+        vec(std(random_line_C_runs, dims=1))
+
+    # ========================================================
+    # 6. Four targeted strategies
+    # ========================================================
+
+    println()
+    println("3/6 Longest line...")
+
+    new_p_largest,
+    new_Q_largest,
+    new_C_largest =
+        execute_line_attack(
+            master_hyperedges,
+            idx_longest,
+            new_p_targets,
+            L,
+            E_0,
+            E_grid,
+            total_edges
+        )
+
+    println("4/6 Degree...")
+
+    new_p_degree,
+    new_Q_degree,
+    new_C_degree =
+        execute_line_attack(
+            master_hyperedges,
+            idx_degree,
+            new_p_targets,
+            L,
+            E_0,
+            E_grid,
+            total_edges
+        )
+
+    println("5/6 Betweenness...")
+
+    new_p_betweenness,
+    new_Q_betweenness,
+    new_C_betweenness =
+        execute_line_attack(
+            master_hyperedges,
+            idx_betweenness,
+            new_p_targets,
+            L,
+            E_0,
+            E_grid,
+            total_edges
+        )
+
+    println(
+        "6/6 Shared nodes: fixed order, ell_min=$ell_min"
+    )
+
+    new_p_shared_node,
+    new_Q_shared_node,
+    new_C_shared_node =
+        execute_intersection_node_attack(
+            master_hyperedges,
+            new_p_targets,
+            L,
+            E_0,
+            E_grid,
+            total_edges;
+            ell_min=ell_min
+        )
+
+    # ========================================================
+    # 7. Read low-p C data
+    # ========================================================
+
+    old_random_edge_C =
+        haskey(random_edge_data, "C_rand_edge") ?
+        random_edge_data["C_rand_edge"] :
+        random_edge_data["S1_rand_edge"]
+
+    old_shared_node_C =
+        haskey(shared_node_data, "C_shared_node") ?
+        shared_node_data["C_shared_node"] :
+        shared_node_data["S1_shared_node"]
+
+    # ========================================================
+    # 8. Merge low-p and high-p data
+    # ========================================================
+
+    # Random edge:
+    # low-p explicitly comes from minlen2 file
+    p_rand_edge = vcat(
+        Float64.(random_edge_data["p_rand_edge"])[low_indices],
+        new_p_rand_edge
+    )
+
+    Q_rand_edge = vcat(
+        Float64.(random_edge_data["Q_rand_edge"])[low_indices],
+        new_Q_rand_edge
+    )
+
+    C_rand_edge = vcat(
+        Float64.(old_random_edge_C)[low_indices],
+        new_C_rand_edge
+    )
+
+    # Random line
+    p_rand_line = vcat(
+        Float64.(old_data["p_rand_line"])[low_indices],
+        new_p_rand_line
+    )
+
+    Q_rand_line = vcat(
+        Float64.(old_data["Q_rand_line"])[low_indices],
+        new_Q_rand_line
+    )
+
+    C_rand_line = vcat(
+        Float64.(old_s1_data["C_rand_line"])[low_indices],
+        new_C_rand_line
+    )
+    # Longest line
+    p_largest = vcat(
+        Float64.(old_data["p_largest"])[low_indices],
+        new_p_largest
+    )
+
+    Q_largest = vcat(
+        Float64.(old_data["Q_largest"])[low_indices],
+        new_Q_largest
+    )
+
+    C_largest = vcat(
+        Float64.(old_s1_data["C_largest"])[low_indices],
+        new_C_largest
+    )
+    # Degree
+    p_degree = vcat(
+        Float64.(old_data["p_degree"])[low_indices],
+        new_p_degree
+    )
+
+    Q_degree = vcat(
+        Float64.(old_data["Q_degree"])[low_indices],
+        new_Q_degree
+    )
+
+    C_degree = vcat(
+        Float64.(old_s1_data["C_degree"])[low_indices],
+        new_C_degree
+    )
+
+    # Betweenness
+    p_betweenness = vcat(
+        Float64.(old_data["p_betweenness"])[low_indices],
+        new_p_betweenness
+    )
+
+    Q_betweenness = vcat(
+        Float64.(old_data["Q_betweenness"])[low_indices],
+        new_Q_betweenness
+    )
+
+    C_betweenness = vcat(
+        Float64.(old_s1_data["C_betweenness"])[low_indices],
+        new_C_betweenness
+    )
+    # Shared nodes:
+    # low-p explicitly comes from minlen2 file
+    p_shared_node = vcat(
+        Float64.(shared_node_data["p_shared_node"])[low_indices],
+        new_p_shared_node
+    )
+
+    Q_shared_node = vcat(
+        Float64.(shared_node_data["Q_shared_node"])[low_indices],
+        new_Q_shared_node
+    )
+
+    C_shared_node = vcat(
+        Float64.(old_shared_node_C)[low_indices],
+        new_C_shared_node
+    )
+
+    # ========================================================
+    # 9. Save
+    # ========================================================
+
+    output_dir = joinpath(
+        output_base_dir,
+        "L=$(L)"
+    )
+
+    mkpath(output_dir)
+
+    output_file = joinpath(
+        output_dir,
+        "Q_data_L$(L)_phi$(phi_tag)_merged_minlen2.jld2"
+    )
+
+    JLD2.jldsave(
+        output_file;
+
+        L=L,
+        target_phi=phi,
+        ell_min=ell_min,
+        random_iterations=random_iterations,
+        base_attack_seed=seed,
+
+        p_targets=merged_p_targets,
+
+        # Random edge: ell_min=2
+        p_rand_edge=p_rand_edge,
+        Q_rand_edge=Q_rand_edge,
+        C_rand_edge=C_rand_edge,
+        S1_rand_edge=C_rand_edge,
+
+        # Random line
+        p_rand_line=p_rand_line,
+        Q_rand_line=Q_rand_line,
+        C_rand_line=C_rand_line,
+        S1_rand_line=C_rand_line,
+
+        # Longest line
+        p_largest=p_largest,
+        Q_largest=Q_largest,
+        C_largest=C_largest,
+        S1_largest=C_largest,
+
+        # Degree
+        p_degree=p_degree,
+        Q_degree=Q_degree,
+        C_degree=C_degree,
+        S1_degree=C_degree,
+
+        # Betweenness
+        p_betweenness=p_betweenness,
+        Q_betweenness=Q_betweenness,
+        C_betweenness=C_betweenness,
+        S1_betweenness=C_betweenness,
+
+        # Shared nodes: ell_min=2
+        p_shared_node=p_shared_node,
+        Q_shared_node=Q_shared_node,
+        C_shared_node=C_shared_node,
+        S1_shared_node=C_shared_node,
+
+        # Network
+        master_hyperedges=master_hyperedges,
+        total_edges=total_edges,
+        E_0=E_0,
+        E_grid=E_grid,
+
+        # Rankings
+        idx_longest=idx_longest,
+        idx_degree=idx_degree,
+        idx_betweenness=idx_betweenness,
+        line_lengths=line_lengths,
+        degree_scores=degree_scores,
+        betweenness_scores=betweenness_scores,
+
+        # New raw random data
+        random_edge_p_runs=random_edge_p_runs,
+        random_edge_Q_runs=random_edge_Q_runs,
+        random_edge_C_runs=random_edge_C_runs,
+        random_edge_seeds=random_edge_seeds,
+
+        random_line_p_runs=random_line_p_runs,
+        random_line_Q_runs=random_line_Q_runs,
+        random_line_C_runs=random_line_C_runs,
+        random_line_seeds=random_line_seeds,
+
+        new_p_rand_edge_std=new_p_rand_edge_std,
+        new_Q_rand_edge_std=new_Q_rand_edge_std,
+        new_C_rand_edge_std=new_C_rand_edge_std,
+
+        new_p_rand_line_std=new_p_rand_line_std,
+        new_Q_rand_line_std=new_Q_rand_line_std,
+        new_C_rand_line_std=new_C_rand_line_std,
+
+        # Source files
+        old_data_file=old_file,
+        random_edge_minlen2_file=random_edge_file,
+        shared_node_minlen2_file=shared_node_file,
+
+        old_low_p_targets=old_low_p_targets,
+        new_linear_p_targets=new_p_targets,
+
+        p_definition=
+        "Old semilog minlen2 data retained through p=0.1; new linear data computed from p=0.15 to 1.0"
+    )
+
+    println()
+    println("Saved merged minlen2 data:")
+    println(output_file)
+    println("============================================")
+
+    GC.gc()
+
+    return output_file
+end
+
+
+# Batch-run merged minlen2 calculations for selected system sizes.
+
+function run_phi095_merged_minlen2(
+    ;
+    L_values=[25, 50, 75, 100],
+    phi::Real=0.95
+)
+    saved_files = String[]
+
+    for L in L_values
+        file = compute_merged_minlen2_six_strategies(
+            L,
+            phi;
+            random_iterations=10,
+            ell_min=2,
+            seed=1234
+        )
+
+        push!(saved_files, file)
+        GC.gc()
+    end
+
+    println()
+    println("All calculations completed.")
+
+    return saved_files
+end
+
+# Plot final linear-scale Q(p) and C(p) curves.
+function plot_phi095_merged_linear(
+    ;
+    L_values=[25, 50, 75, 100],
+    phi::Real=0.95,
+
+    data_base_dir=joinpath(
+        @__DIR__,
+        "MergedMinlen2LinearData"
+    ),
+
+    output_dir=joinpath(
+        @__DIR__,
+        "MergedMinlen2LinearFigures"
+    )
+)
+    mkpath(output_dir)
+
+    phi_tag = replace(
+        @sprintf("%.2f", phi),
+        "." => "p"
+    )
+
+    strategies = [
+        (
+            label="Random edge",
+            p="p_rand_edge",
+            Q="Q_rand_edge",
+            C="C_rand_edge",
+            color=:gray,
+            marker=:circle,
+            linestyle=:solid
+        ),
+        (
+            label="Random line",
+            p="p_rand_line",
+            Q="Q_rand_line",
+            C="C_rand_line",
+            color=:black,
+            marker=:cross,
+            linestyle=:dash
+        ),
+        (
+            label="Longest line",
+            p="p_largest",
+            Q="Q_largest",
+            C="C_largest",
+            color=:blue,
+            marker=:square,
+            linestyle=:solid
+        ),
+        (
+            label="Largest degree",
+            p="p_degree",
+            Q="Q_degree",
+            C="C_degree",
+            color=:orange,
+            marker=:diamond,
+            linestyle=:solid
+        ),
+        (
+            label="Betweenness",
+            p="p_betweenness",
+            Q="Q_betweenness",
+            C="C_betweenness",
+            color=:red,
+            marker=:utriangle,
+            linestyle=:solid
+        ),
+        (
+            label="Shared nodes",
+            p="p_shared_node",
+            Q="Q_shared_node",
+            C="C_shared_node",
+            color=:green,
+            marker=:star5,
+            linestyle=:solid
+        )
+    ]
+
+    Q_panels = Plots.Plot[]
+    C_panels = Plots.Plot[]
+
+    for (panel_index, L) in enumerate(L_values)
+
+        data_file = joinpath(
+            data_base_dir,
+            "L=$(L)",
+            "Q_data_L$(L)_phi$(phi_tag)_merged_minlen2.jld2"
+        )
+
+        isfile(data_file) ||
+            error("Missing merged data file:\n$data_file")
+
+        println("Loading: ", data_file)
+
+        data = JLD2.load(data_file)
+
+        # legend_setting =
+        #   panel_index == 1 ? :bottomleft : false
+        legend_setting=false
+
+        # ---------------- Q panel ----------------
+
+        Q_plot = plot(
+            #xlabel="p",
+            #ylabel="Q(p)",
+            #title="L = $L",
+            xlims=(0, 1.0),
+            ylims=(0, 1.05),
+            xscale=:identity,
+            yscale=:identity,
+            legend=legend_setting,
+            legend_setting=false,
+            grid=true,
+            framestyle=:box,
+            linewidth=1.8,
+            markersize=3,
+            tickfontsize=9,
+            guidefontsize=10,
+            titlefontsize=10,
+            #legendfontsize=7
+        )
+
+        # ---------------- C panel ----------------
+
+        C_plot = plot(
+            #xlabel="p",
+            #ylabel="C(p)",
+            #title="L = $L",
+            xlims=(0, 1.0),
+            ylims=(0, 1.05),
+            xscale=:identity,
+            yscale=:identity,
+            legend=legend_setting,
+            legend_setting=false,
+            grid=true,
+            framestyle=:box,
+            linewidth=1.8,
+            markersize=3,
+            tickfontsize=9,
+            guidefontsize=10,
+            titlefontsize=10,
+            # legendfontsize=5
+        )
+
+        for strategy in strategies
+            p_values = Float64.(data[strategy.p])
+            Q_values = Float64.(data[strategy.Q])
+
+            # Compatible with files using either C_* or S1_*
+            C_values = if haskey(data, strategy.C)
+                Float64.(data[strategy.C])
+            else
+                S1_key = replace(strategy.C, "C_" => "S1_")
+                Float64.(data[S1_key])
+            end
+
+            plot!(
+                Q_plot,
+                p_values,
+                Q_values;
+                label=strategy.label,
+                color=strategy.color,
+                marker=strategy.marker,
+                linestyle=strategy.linestyle,
+                linewidth=1.8,
+                markersize=3
+            )
+
+            plot!(
+                C_plot,
+                p_values,
+                C_values;
+                label=strategy.label,
+                color=strategy.color,
+                marker=strategy.marker,
+                linestyle=strategy.linestyle,
+                linewidth=1.8,
+                markersize=3
+            )
+        end
+
+        push!(Q_panels, Q_plot)
+        push!(C_panels, C_plot)
+    end
+
+    # ========================================================
+    # Combine panels
+    # ========================================================
+
+    Q_figure = plot(
+        Q_panels...;
+        layout=(4, 1),
+        size=(400, 1600),
+        link=:all,
+        margin=9Plots.mm
+    )
+
+    C_figure = plot(
+        C_panels...;
+        layout=(4, 1),
+        size=(400, 1600),
+        link=:all,
+        margin=9Plots.mm
+    )
+
+    # ========================================================
+    # Save figures
+    # ========================================================
+
+    Q_pdf = joinpath(
+        output_dir,
+        "Q_phi$(phi_tag)_linear.pdf"
+    )
+
+    C_pdf = joinpath(
+        output_dir,
+        "C_phi$(phi_tag)_linear.pdf"
+    )
+
+    savefig(Q_figure, Q_pdf)
+    savefig(C_figure, C_pdf)
+
+    savefig(
+        Q_figure,
+        replace(Q_pdf, ".pdf" => ".png")
+    )
+
+    savefig(
+        C_figure,
+        replace(C_pdf, ".pdf" => ".png")
+    )
+
+    display(Q_figure)
+    display(C_figure)
+
+    println("Saved Q figure: ", Q_pdf)
+    println("Saved C figure: ", C_pdf)
+
+    return Q_figure, C_figure
+end
