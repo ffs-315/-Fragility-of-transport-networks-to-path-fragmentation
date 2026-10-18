@@ -17,3 +17,34 @@ Install the required packages in Julia:
 using Pkg
 Pkg.add(["Graphs", "StatsBase", "Plots", "NetworkLayout",
          "SimpleWeightedGraphs", "JLD2"])
+
+## usage
+include("route_network_resilience.jl")
+mkpath("results")
+
+# Example seeds; not verified manuscript seeds.
+network_seed = 1234
+attack_seed = 5678
+
+Random.seed!(network_seed)
+routes = generate_network_to_fixed_phi(10, 0.25)
+
+result = run_resilience_case(
+    routes, 10, 0.25;
+    runs=2, seed=attack_seed,
+    outfile="results/example.jld2"
+)
+
+JLD2.jldsave(
+    "results/example_network.jld2";
+    routes=routes, L=10, phi=0.25, network_seed=network_seed
+)
+
+cases = Dict((10, 0.25) => result)
+for metric in (:Q, :C)
+    plot_resilience_grid(
+        cases; metric=metric,
+        L_values=[10], phi_values=[0.25],
+        outfile="results/example_$(metric).pdf"
+    )
+end
